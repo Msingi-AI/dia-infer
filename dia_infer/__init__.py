@@ -1,9 +1,26 @@
-"""dia-infer: streaming Dia TTS engine for msingiai/dia (nari@052a840 + LANG2BYTE).
+"""dia-infer: streaming Dia TTS for msingiai/dia (nari@052a840 + LANG2BYTE).
 
-Local laptop GPUs (e.g. RTX 5060 8 GB) do **not** meet realtime for this model.
-Production path: Modal A10 WebSocket (`modal_app.py`). Local `infer.py` is smoke only.
+Local laptop GPUs do **not** meet realtime. Production S2S uses Modal A10
+(`modal_app.py` WebSocket).
 """
 
-from dia_infer.engine import DiaEngine, SAMPLE_RATE
+from __future__ import annotations
 
-__all__ = ["DiaEngine", "SAMPLE_RATE"]
+from typing import TYPE_CHECKING
+
+from dia_infer.text import format_sw_prompt, normalize_for_tts
+
+if TYPE_CHECKING:
+    from dia_infer.engine import DiaEngine
+
+SAMPLE_RATE = 44_100
+
+__all__ = ["DiaEngine", "SAMPLE_RATE", "format_sw_prompt", "normalize_for_tts"]
+
+
+def __getattr__(name: str):
+    if name == "DiaEngine":
+        from dia_infer.engine import DiaEngine
+
+        return DiaEngine
+    raise AttributeError(name)
