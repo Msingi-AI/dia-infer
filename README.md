@@ -11,7 +11,16 @@ Streaming TTS for [`msingiai/dia`](https://huggingface.co/msingiai/dia) on **nar
 
 **Speech-to-speech must use the Modal A10 WebSocket**, not in-process local Dia. Local S2S + Dia will not keep up.
 
-## Layout
+## Install
+
+Needs **Python 3.11 or 3.12** (not 3.13 — `descript-audio-codec` / numba).
+
+```bash
+cd dia-infer
+uv sync --python 3.11
+# modal CLI: uv run modal …
+# or: source .venv/bin/activate && modal …
+```
 
 - `dia/` — vendored nari pin + LANG2BYTE
 - `dia_infer/` — `DiaEngine`, streamer, text normalize, download
@@ -40,7 +49,7 @@ modal deploy modal_app.py
 # Server sends: binary PCM16 frames, then {"event":"end","sample_rate":44100}
 ```
 
-## Local smoke (not production)
+## Local 
 
 ```bash
 export HF_TOKEN=hf_...
@@ -48,7 +57,4 @@ python -m dia_infer.download
 python infer.py "Habari." -o out.wav --metrics --no-compile   # laptop
 ```
 
-## S2S plug-in
 
-In `speech-to-speech`, use `--tts dia` with `--dia_tts_ws_url wss://.../tts`.
-The handler is a **remote client** (resample 44.1k → 16 kHz int16 for the pipeline).
