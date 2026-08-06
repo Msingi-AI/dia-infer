@@ -6,3 +6,4 @@ out.wav
 *.wav
 .env
 .modal/
+!t6.0_seed42.wav
