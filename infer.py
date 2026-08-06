@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local smoke CLI (not for production S2S — use Modal A10 serve)."""
+"""Local smoke CLI — write one utterance to WAV (use Modal A10 for realtime)."""
 
 from __future__ import annotations
 
@@ -22,6 +22,13 @@ def main() -> None:
     p.add_argument("text")
     p.add_argument("-o", "--output", type=Path, default=ROOT / "out.wav")
     p.add_argument("--model-dir", type=Path, default=DEFAULT_MODEL)
+    p.add_argument("--temperature", type=float, default=1.3)
+    p.add_argument("--cfg-scale", type=float, default=3.0)
+    p.add_argument("--top-p", type=float, default=0.95)
+    p.add_argument("--seed", type=int, default=None)
+    p.add_argument("--speed-factor", type=float, default=1.0)
+    p.add_argument("--prompt-text", type=str, default=None)
+    p.add_argument("--audio-prompt", type=Path, default=None)
     p.add_argument("--metrics", action="store_true")
     p.add_argument("--no-compile", action="store_true")
     args = p.parse_args()
@@ -31,8 +38,22 @@ def main() -> None:
         compile=not args.no_compile,
     )
     stats = StreamStats()
-    chunks = list(engine.stream(args.text, stats=stats))
+    chunks = list(
+        engine.stream(
+            args.text,
+            temperature=args.temperature,
+            cfg_scale=args.cfg_scale,
+            top_p=args.top_p,
+            seed=args.seed,
+            prompt_text=args.prompt_text,
+            audio_prompt=args.audio_prompt,
+            stats=stats,
+        )
+    )
     audio = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
+    from dia_infer.audio_post import apply_speed_factor
+
+    audio = apply_speed_factor(audio, args.speed_factor)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     sf.write(str(args.output), audio, SAMPLE_RATE)
     print(f"[ok] {args.output} ({len(audio) / SAMPLE_RATE:.2f}s)")

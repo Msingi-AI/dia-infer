@@ -134,6 +134,14 @@ def _maybe_mark_cuda_graph_step() -> None:
         mark()
 
 
+def _apply_seed(seed: int | None) -> None:
+    if seed is None:
+        return
+    torch.manual_seed(int(seed))
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(int(seed))
+
+
 def _stream_stateful(
     engine: Any,
     text: str,
@@ -147,6 +155,7 @@ def _stream_stateful(
     decoder: _IncrementalDAC,
     stats: StreamStats,
     started_at: float,
+    audio_prompt: Any = None,
 ) -> Iterator[np.ndarray]:
     cfg = engine.config
     delay = list(cfg.data.delay_pattern)
@@ -156,9 +165,9 @@ def _stream_stateful(
 
     prepare_signature = inspect.signature(engine._prepare_generation)
     if "verbose" in prepare_signature.parameters:
-        dec_state, dec_output = engine._prepare_generation(text, None, False)
+        dec_state, dec_output = engine._prepare_generation(text, audio_prompt, False)
     else:
-        dec_state, dec_output = engine._prepare_generation(text, None)
+        dec_state, dec_output = engine._prepare_generation(text, audio_prompt)
 
     prefill_step = int(dec_output.prefill_step)
     dec_step = prefill_step - 1
@@ -244,6 +253,8 @@ def stream_utterance(
     temperature: float = 1.3,
     top_p: float = 0.95,
     cfg_filter_top_k: int = 35,
+    seed: int | None = None,
+    audio_prompt: Any = None,
     use_torch_compile: bool = False,
     stats: StreamStats | None = None,
 ) -> Iterator[np.ndarray]:
@@ -257,6 +268,7 @@ def stream_utterance(
     stream_stats.reset(sample_rate)
     started_at = time.perf_counter()
     engine.model.eval()
+    _apply_seed(seed)
     delay = list(engine.config.data.delay_pattern)
     decoder = _IncrementalDAC(
         engine, delay, chunk_frames, context_frames, context_frames, hop_length
@@ -274,6 +286,7 @@ def stream_utterance(
             decoder=decoder,
             stats=stream_stats,
             started_at=started_at,
+            audio_prompt=audio_prompt,
         )
     finally:
         stream_stats.total_s = time.perf_counter() - started_at

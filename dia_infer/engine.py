@@ -10,7 +10,7 @@ import numpy as np
 import torch
 
 from dia_infer.stream import StreamStats, stream_pcm16, stream_utterance
-from dia_infer.text import format_sw_prompt
+from dia_infer.text import format_clone_prompt, format_sw_prompt
 
 SAMPLE_RATE = 44_100
 _ROOT = Path(__file__).resolve().parents[1]
@@ -19,7 +19,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 class DiaEngine:
     """Streaming TTS for msingiai/dia (nari@052a840 + LANG2BYTE).
 
-    Realtime requires roughly A10-class GPU with warm torch.compile.
+    Realtime streaming needs roughly A10-class GPU with warm torch.compile.
     Laptop 8 GB GPUs are smoke-only.
     """
 
@@ -95,10 +95,23 @@ class DiaEngine:
         chunk_ms: int = 250,
         cfg_scale: float = 3.0,
         temperature: float = 1.3,
+        top_p: float = 0.95,
+        seed: int | None = None,
+        prompt_text: str | None = None,
+        audio_prompt: str | Path | None = None,
         use_torch_compile: bool | None = None,
         stats: StreamStats | None = None,
     ) -> Iterator[np.ndarray]:
-        prompt = format_sw_prompt(text)
+        if audio_prompt is not None and not (prompt_text or "").strip():
+            raise ValueError("prompt_text is required when audio_prompt is set")
+        if prompt_text and audio_prompt is None:
+            raise ValueError("audio_prompt is required when prompt_text is set")
+        if audio_prompt is not None:
+            prompt = format_clone_prompt(prompt_text or "", text)
+            audio_ref: str | Path | None = str(audio_prompt)
+        else:
+            prompt = format_sw_prompt(text)
+            audio_ref = None
         use_compile = self._compiled if use_torch_compile is None else use_torch_compile
         stream_stats = stats if stats is not None else StreamStats()
         self.last_stats = stream_stats
@@ -108,12 +121,26 @@ class DiaEngine:
             chunk_ms=chunk_ms,
             cfg_scale=cfg_scale,
             temperature=temperature,
+            top_p=top_p,
+            seed=seed,
+            audio_prompt=audio_ref,
             use_torch_compile=use_compile,
             stats=stream_stats,
         )
 
     def stream_pcm16(self, text: str, **kwargs) -> Iterator[bytes]:
-        prompt = format_sw_prompt(text)
+        prompt_text = kwargs.pop("prompt_text", None)
+        audio_prompt = kwargs.pop("audio_prompt", None)
+        if audio_prompt is not None and not (prompt_text or "").strip():
+            raise ValueError("prompt_text is required when audio_prompt is set")
+        if prompt_text and audio_prompt is None:
+            raise ValueError("audio_prompt is required when prompt_text is set")
+        if audio_prompt is not None:
+            prompt = format_clone_prompt(prompt_text or "", text)
+            audio_ref: str | Path | None = str(audio_prompt)
+        else:
+            prompt = format_sw_prompt(text)
+            audio_ref = None
         use_compile = kwargs.pop("use_torch_compile", None)
         if use_compile is None:
             use_compile = self._compiled
@@ -124,5 +151,6 @@ class DiaEngine:
             prompt,
             use_torch_compile=use_compile,
             stats=stats,
+            audio_prompt=audio_ref,
             **kwargs,
         )

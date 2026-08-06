@@ -249,6 +249,11 @@ class Attention(nn.Module):
                 else:
                     attn_k, attn_v = cache.update(Xk_BxKxSxH, Xv_BxKxSxH, current_idx)
 
+        # Newer PyTorch rejects attn_mask + is_causal together. Prefill uses is_causal=True
+        # (audio-prompt path); decode steps use an explicit causal row mask instead.
+        if is_causal:
+            attn_mask = None
+
         attn_output = F.scaled_dot_product_attention(
             Xq_BxNxTxH,
             attn_k,

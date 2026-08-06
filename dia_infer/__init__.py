@@ -1,8 +1,4 @@
-"""dia-infer: streaming Dia TTS for msingiai/dia (nari@052a840 + LANG2BYTE).
-
-Local laptop GPUs do **not** meet realtime. Production S2S uses Modal A10
-(`modal_app.py` WebSocket).
-"""
+"""dia-infer: streaming Dia TTS for msingiai/dia (nari@052a840 + LANG2BYTE)."""
 
 from __future__ import annotations
 

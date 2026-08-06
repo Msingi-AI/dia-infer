@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""Modal A10G WebSocket serve for dia-infer (required path for S2S).
-
-Local GPUs do not meet Dia realtime; S2S should call this endpoint.
+"""Modal A10G serve for msingiai/dia (POST /generate → WAV, WS /tts → PCM16).
 
   modal deploy modal_app.py
-  # → wss://<app>.modal.run/tts
+  modal serve modal_app.py   # ephemeral
 
-  modal serve modal_app.py   # ephemeral for testing
+Weights download from Hugging Face (public). Optional HF_TOKEN via env if needed.
 """
 
 from __future__ import annotations
@@ -21,7 +19,7 @@ app = modal.App("dia-infer")
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .apt_install("git")
+    .apt_install("git", "libsndfile1")
     .pip_install(
         "torch",
         "torchaudio",
@@ -32,6 +30,7 @@ image = (
         "pydantic",
         "fastapi",
         "uvicorn",
+        "python-multipart",
         "python-dotenv",
     )
     .env({"DIA_MODEL_DIR": "/root/dia-infer/models/dia", "DIA_COMPILE": "1"})
@@ -46,9 +45,8 @@ image = (
     image=image,
     gpu="A10G",
     timeout=60 * 60,
-    secrets=[modal.Secret.from_name("cian-hf-secret")],
-    # 0 = scale to zero (cheap). Set 1 for warm TTFA when S2S clients call this.
-    min_containers=0,
+    # Keep warm while sampling voices (avoids ~4 min recompile). Set 0 to scale to zero.
+    min_containers=1,
 )
 class DiaService:
     @modal.enter()
@@ -61,19 +59,15 @@ class DiaService:
         os.chdir(root)
         sys.path.insert(0, str(root))
 
-        token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN", "")
-        if not token:
-            raise RuntimeError("cian-hf-secret missing HF_TOKEN")
-        os.environ["HF_TOKEN"] = token
-        os.environ["HUGGING_FACE_HUB_TOKEN"] = token
-
         model_dir = root / "models" / "dia"
         if not (model_dir / "model.pth").exists():
             from dia_infer.download import download
 
-            download(model_dir, token=token)
+            token = os.environ.get("HF_TOKEN") or os.environ.get(
+                "HUGGING_FACE_HUB_TOKEN"
+            )
+            download(model_dir, token=token or None)
 
-        # Warm load + compile (first user request stays fast).
         from serve import get_engine
 
         get_engine()
@@ -82,7 +76,6 @@ class DiaService:
     @modal.asgi_app()
     def fastapi_app(self):
         import sys
-        from pathlib import Path
 
         sys.path.insert(0, "/root/dia-infer")
         import serve as serve_mod

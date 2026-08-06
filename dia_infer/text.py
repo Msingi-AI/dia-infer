@@ -97,3 +97,8 @@ def format_sw_prompt(text: str) -> str:
     if body.startswith("["):
         return body
     return f"[sw]{body}"
+
+
+def format_clone_prompt(prompt_text: str, generate_text: str) -> str:
+    """Voice-clone text: transcript of the reference audio + new text (nari-style concat)."""
+    return format_sw_prompt(prompt_text) + format_sw_prompt(generate_text)
