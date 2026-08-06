@@ -19,8 +19,12 @@ dependencies = [
   "fastapi",
   "uvicorn",
   "websockets",
-  "modal>=1.5.3",
 ]
+
+[project.optional-dependencies]
+# Do not install `modal` into a Modal container image — it conflicts with the
+# platform runtime. Use this extra only on the host for `modal deploy`.
+modal = ["modal>=1.5.3"]
 
 [build-system]
 requires = ["hatchling"]

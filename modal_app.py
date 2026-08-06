@@ -47,7 +47,8 @@ image = (
     gpu="A10G",
     timeout=60 * 60,
     secrets=[modal.Secret.from_name("cian-hf-secret")],
-    min_containers=1,
+    # 0 = scale to zero (cheap). Set 1 for warm TTFA when S2S clients call this.
+    min_containers=0,
 )
 class DiaService:
     @modal.enter()
