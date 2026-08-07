@@ -15,11 +15,27 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from dia_infer.engine import DEFAULT_REFERENCE_MANIFEST, SAMPLE_RATE, DiaEngine
-from dia_infer.stream import StreamStats
+from dia_infer.stream import DEFAULT_COMPILE_MODE, StreamStats
 
 app = FastAPI(title="dia-infer")
 _engine: DiaEngine | None = None
 _gen_lock = threading.Lock()
+
+DEFAULT_TEMPERATURE = float(os.environ.get("DIA_TEMPERATURE", "1.3"))
+DEFAULT_CFG_SCALE = float(os.environ.get("DIA_CFG_SCALE", "3.0"))
+DEFAULT_TOP_P = float(os.environ.get("DIA_TOP_P", "0.95"))
+DEFAULT_CFG_FILTER_TOP_K = int(os.environ.get("DIA_CFG_FILTER_TOP_K", "45"))
+DEFAULT_SEGMENT_MAX_BYTES = int(os.environ.get("DIA_SEGMENT_MAX_BYTES", "220"))
+
+
+def _generation_defaults() -> dict[str, float | int]:
+    return {
+        "temperature": DEFAULT_TEMPERATURE,
+        "cfg_scale": DEFAULT_CFG_SCALE,
+        "top_p": DEFAULT_TOP_P,
+        "cfg_filter_top_k": DEFAULT_CFG_FILTER_TOP_K,
+        "segment_max_bytes": DEFAULT_SEGMENT_MAX_BYTES,
+    }
 
 
 def get_engine() -> DiaEngine:
@@ -34,6 +50,8 @@ def get_engine() -> DiaEngine:
         _engine = DiaEngine.load(
             model_dir,
             compile=os.environ.get("DIA_COMPILE", "1") != "0",
+            compile_mode=os.environ.get("DIA_COMPILE_MODE", DEFAULT_COMPILE_MODE),
+            warmup_options=_generation_defaults(),
             audio_context_tokens=int(
                 os.environ.get("DIA_AUDIO_CONTEXT_TOKENS", "3072")
             ),
@@ -44,13 +62,13 @@ def get_engine() -> DiaEngine:
 
 class GenerateRequest(BaseModel):
     text: str = Field(..., min_length=1)
-    temperature: float = Field(1.3, ge=0.0)
-    cfg_scale: float = Field(3.0, ge=0.0)
-    top_p: float = Field(0.95, gt=0.0, le=1.0)
-    cfg_filter_top_k: int = Field(45, gt=0)
+    temperature: float = Field(DEFAULT_TEMPERATURE, ge=0.0)
+    cfg_scale: float = Field(DEFAULT_CFG_SCALE, ge=0.0)
+    top_p: float = Field(DEFAULT_TOP_P, gt=0.0, le=1.0)
+    cfg_filter_top_k: int = Field(DEFAULT_CFG_FILTER_TOP_K, gt=0)
     seed: int | None = None
     max_tokens: int | None = Field(None, gt=0)
-    segment_max_bytes: int | None = Field(220, ge=16)
+    segment_max_bytes: int | None = Field(DEFAULT_SEGMENT_MAX_BYTES, ge=16)
 
 
 def _wav_response(audio: np.ndarray, stats: StreamStats, engine: DiaEngine) -> Response:
@@ -122,16 +140,20 @@ async def tts_ws(ws: WebSocket) -> None:
             return
 
         max_tokens_value = msg.get("max_tokens")
-        segment_bytes_value = msg.get("segment_max_bytes", 220)
+        segment_bytes_value = msg.get(
+            "segment_max_bytes", DEFAULT_SEGMENT_MAX_BYTES
+        )
         seed_value = msg.get("seed")
         stats = StreamStats()
         with _gen_lock:
             for pcm in engine.stream_pcm16(
                 text,
-                temperature=float(msg.get("temperature", 1.3)),
-                cfg_scale=float(msg.get("cfg_scale", 3.0)),
-                top_p=float(msg.get("top_p", 0.95)),
-                cfg_filter_top_k=int(msg.get("cfg_filter_top_k", 45)),
+                temperature=float(msg.get("temperature", DEFAULT_TEMPERATURE)),
+                cfg_scale=float(msg.get("cfg_scale", DEFAULT_CFG_SCALE)),
+                top_p=float(msg.get("top_p", DEFAULT_TOP_P)),
+                cfg_filter_top_k=int(
+                    msg.get("cfg_filter_top_k", DEFAULT_CFG_FILTER_TOP_K)
+                ),
                 max_tokens=(
                     int(max_tokens_value) if max_tokens_value is not None else None
                 ),

@@ -67,6 +67,23 @@ reading, and encoding the same WAV repeatedly.
 This also ensures complete-WAV and streaming generation use identical voice
 conditioning and sampling defaults.
 
+## Compilation warmup
+
+`torch.compile` specializes Python scalar generation arguments, so warming one
+temperature and serving another may compile a second graph on the first real
+request. The engine accepts `warmup_options`, and the service passes the same
+defaults used for generation.
+
+Warmup stops after the first decoded audio chunk. That is enough to exercise
+the decoder and DAC graphs without waiting for a complete sampled utterance.
+The compiled decoder wrapper is retained on the model and reused by later
+streams. This avoids both unnecessary warmup audio and repeated wrapper setup;
+it does not change generated audio.
+
+The serving default is `reduce-overhead`, which avoids the lengthy kernel
+search performed by `max-autotune` while retaining CUDA-graph optimization.
+`DIA_COMPILE_MODE=max-autotune` remains available for throughput comparisons.
+
 ## Seeds and voice identity
 
 A fixed seed makes sampling reproducible for the same input. It is not a

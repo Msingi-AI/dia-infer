@@ -14,6 +14,7 @@ DEFAULT_CHUNK_MS = 250
 DEFAULT_CONTEXT_FRAMES = 16
 DEFAULT_SAMPLE_RATE = 44_100
 DEFAULT_HOP_LENGTH = 512
+DEFAULT_COMPILE_MODE = "reduce-overhead"
 
 
 @dataclass
@@ -151,6 +152,21 @@ def _apply_seed(seed: int | None) -> None:
         torch.cuda.manual_seed_all(int(seed))
 
 
+def _decoder_step_for(engine: Any, compile_mode: str):
+    """Return one persistent compiled decoder wrapper per engine and mode."""
+    cache = getattr(engine, "_dia_infer_compiled_steps", None)
+    if cache is None:
+        cache = {}
+        setattr(engine, "_dia_infer_compiled_steps", cache)
+    if compile_mode not in cache:
+        cache[compile_mode] = torch.compile(
+            engine._decoder_step,
+            fullgraph=True,
+            mode=compile_mode,
+        )
+    return cache[compile_mode]
+
+
 def _stream_stateful(
     engine: Any,
     text: str,
@@ -161,6 +177,7 @@ def _stream_stateful(
     top_p: float,
     cfg_filter_top_k: int,
     use_torch_compile: bool,
+    compile_mode: str,
     decoder: _IncrementalDAC,
     stats: StreamStats,
     started_at: float,
@@ -198,7 +215,7 @@ def _stream_stateful(
 
     step_fn = engine._decoder_step
     if use_torch_compile:
-        step_fn = torch.compile(step_fn, fullgraph=True, mode="max-autotune")
+        step_fn = _decoder_step_for(engine, compile_mode)
 
     while dec_step < max_tokens:
         if eos_countdown == 0:
@@ -279,6 +296,7 @@ def stream_utterance(
     seed: int | None = None,
     audio_prompt: Any = None,
     use_torch_compile: bool = False,
+    compile_mode: str = DEFAULT_COMPILE_MODE,
     stats: StreamStats | None = None,
 ) -> Iterator[np.ndarray]:
     """Yield mono float32 waveform chunks @ engine DAC sample rate."""
@@ -313,6 +331,7 @@ def stream_utterance(
             top_p=float(top_p),
             cfg_filter_top_k=int(cfg_filter_top_k),
             use_torch_compile=use_torch_compile,
+            compile_mode=compile_mode,
             decoder=decoder,
             stats=stream_stats,
             started_at=started_at,

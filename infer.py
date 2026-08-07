@@ -11,7 +11,7 @@ import numpy as np
 import soundfile as sf
 
 from dia_infer.engine import DEFAULT_REFERENCE_MANIFEST, SAMPLE_RATE, DiaEngine
-from dia_infer.stream import StreamStats
+from dia_infer.stream import DEFAULT_COMPILE_MODE, StreamStats
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_MODEL = ROOT / "models" / "dia"
@@ -35,11 +35,21 @@ def main() -> None:
     )
     p.add_argument("--metrics", action="store_true")
     p.add_argument("--no-compile", action="store_true")
+    p.add_argument("--compile-mode", default=DEFAULT_COMPILE_MODE)
     args = p.parse_args()
 
     engine = DiaEngine.load(
         args.model_dir,
         compile=not args.no_compile,
+        compile_mode=args.compile_mode,
+        warmup_options={
+            "temperature": args.temperature,
+            "cfg_scale": args.cfg_scale,
+            "top_p": args.top_p,
+            "cfg_filter_top_k": args.cfg_filter_top_k,
+            "seed": args.seed,
+            "segment_max_bytes": args.segment_max_bytes,
+        },
         audio_context_tokens=args.audio_context_tokens,
         reference_manifest=args.reference_manifest,
     )

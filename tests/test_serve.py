@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import unittest
 from unittest.mock import patch
 
 import serve
+from dia_infer.stream import DEFAULT_COMPILE_MODE
 
 
 class _FakeWebSocket:
@@ -41,6 +43,27 @@ class _FakeEngine:
 
 
 class StreamingEndpointTests(unittest.TestCase):
+    def tearDown(self) -> None:
+        serve._engine = None
+
+    def test_engine_warmup_uses_service_generation_defaults(self) -> None:
+        fake_engine = object()
+        with patch.object(
+            serve.DiaEngine,
+            "load",
+            return_value=fake_engine,
+        ) as load:
+            self.assertIs(serve.get_engine(), fake_engine)
+
+        self.assertEqual(
+            load.call_args.kwargs["warmup_options"],
+            serve._generation_defaults(),
+        )
+        self.assertEqual(
+            load.call_args.kwargs["compile_mode"],
+            os.environ.get("DIA_COMPILE_MODE", DEFAULT_COMPILE_MODE),
+        )
+
     def test_chunks_are_sent_before_generation_finishes(self) -> None:
         events: list[str] = []
         ws = _FakeWebSocket(events)

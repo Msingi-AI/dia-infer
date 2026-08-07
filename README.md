@@ -119,7 +119,8 @@ uv run modal deploy modal_app.py
 ```
 
 The image includes the `dia/`, `dia_infer/`, and `references/` directories.
-Model weights are downloaded when the container starts.
+Its `dia-infer-models` Modal Volume retains model weights after the first
+download.
 
 ## Configuration
 
@@ -129,6 +130,12 @@ Model weights are downloaded when the container starts.
 | `DIA_REFERENCE_MANIFEST` | `references/default.json` | Voice-reference manifest |
 | `DIA_AUDIO_CONTEXT_TOKENS` | `3072` | Runtime decoder context |
 | `DIA_COMPILE` | `1` | Enable warmed `torch.compile` on CUDA |
+| `DIA_COMPILE_MODE` | `reduce-overhead` | TorchInductor compilation mode |
+| `DIA_TEMPERATURE` | `1.3` | Default request and warmup temperature |
+| `DIA_CFG_SCALE` | `3.0` | Default request and warmup CFG scale |
+| `DIA_TOP_P` | `0.95` | Default request and warmup nucleus threshold |
+| `DIA_CFG_FILTER_TOP_K` | `45` | Default request and warmup CFG candidate count |
+| `DIA_SEGMENT_MAX_BYTES` | `220` | Default request and warmup segment budget |
 
 Generation requests also accept `temperature`, `cfg_scale`, `top_p`,
 `cfg_filter_top_k`, `seed`, `max_tokens`, and `segment_max_bytes`.

@@ -72,5 +72,47 @@ class EngineSegmentationTests(unittest.TestCase):
         self.assertEqual(stats.stop_reason, "eos")
 
 
+class EngineWarmupTests(unittest.TestCase):
+    def test_warmup_stops_after_first_chunk_and_uses_requested_options(self) -> None:
+        engine = DiaEngine(_FakeDia())
+        consumed: list[int] = []
+        closed: list[bool] = []
+
+        def chunks():
+            try:
+                consumed.append(1)
+                yield np.ones(8, dtype=np.float32)
+                consumed.append(2)
+                yield np.ones(8, dtype=np.float32)
+            finally:
+                closed.append(True)
+
+        options = {
+            "temperature": 1.0,
+            "cfg_scale": 3.0,
+            "top_p": 0.95,
+            "cfg_filter_top_k": 45,
+        }
+        with patch.object(engine, "stream", return_value=chunks()) as stream:
+            engine._warm_compile("Habari.", options)
+
+        stream.assert_called_once_with(
+            "Habari.",
+            use_torch_compile=True,
+            **options,
+        )
+        self.assertEqual(consumed, [1])
+        self.assertEqual(closed, [True])
+        self.assertTrue(engine._compiled)
+
+    def test_warmup_rejects_internal_stream_overrides(self) -> None:
+        engine = DiaEngine(_FakeDia())
+        with self.assertRaisesRegex(ValueError, "use_torch_compile"):
+            engine._warm_compile(
+                "Habari.",
+                {"use_torch_compile": False},
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

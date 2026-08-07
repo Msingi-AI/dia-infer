@@ -16,6 +16,8 @@ import modal
 ROOT = Path(__file__).resolve().parent
 
 app = modal.App("dia-infer")
+model_volume = modal.Volume.from_name("dia-infer-models", create_if_missing=True)
+MODEL_VOLUME_PATH = "/root/dia-infer/models"
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -35,6 +37,7 @@ image = (
         {
             "DIA_MODEL_DIR": "/root/dia-infer/models/dia",
             "DIA_COMPILE": "1",
+            "DIA_COMPILE_MODE": "reduce-overhead",
             "DIA_AUDIO_CONTEXT_TOKENS": "3072",
             "DIA_REFERENCE_MANIFEST": "/root/dia-infer/references/default.json",
         }
@@ -53,6 +56,7 @@ image = (
     timeout=60 * 60,
     # Keep warm while sampling voices (avoids ~4 min recompile). Set 0 to scale to zero.
     min_containers=1,
+    volumes={MODEL_VOLUME_PATH: model_volume},
 )
 class DiaService:
     @modal.enter()
@@ -73,6 +77,7 @@ class DiaService:
                 "HUGGING_FACE_HUB_TOKEN"
             )
             download(model_dir, token=token or None)
+            model_volume.commit()
 
         from serve import get_engine
 

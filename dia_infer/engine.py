@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import sys
 import time
+from collections.abc import Iterator, Mapping
 from pathlib import Path
-from typing import Iterator
+from typing import Any
 
 import numpy as np
 import torch
 
 from dia_infer.reference import VoiceReference
-from dia_infer.stream import StreamStats, stream_utterance
+from dia_infer.stream import DEFAULT_COMPILE_MODE, StreamStats, stream_utterance
 from dia_infer.text import format_clone_prompt, format_sw_prompt, split_for_tts
 
 SAMPLE_RATE = 44_100
@@ -35,6 +36,7 @@ class DiaEngine:
         reference: VoiceReference | None = None,
         reference_codes: torch.Tensor | None = None,
         compiled: bool = False,
+        compile_mode: str = DEFAULT_COMPILE_MODE,
     ) -> None:
         if (reference is None) != (reference_codes is None):
             raise ValueError("reference and reference_codes must be provided together")
@@ -42,6 +44,7 @@ class DiaEngine:
         self._reference = reference
         self._reference_codes = reference_codes
         self._compiled = compiled
+        self._compile_mode = compile_mode
         self.last_stats: StreamStats | None = None
 
     @property
@@ -57,6 +60,10 @@ class DiaEngine:
         return self._reference
 
     @property
+    def compile_mode(self) -> str:
+        return self._compile_mode
+
+    @property
     def device(self) -> torch.device:
         return self._dia.device
 
@@ -68,7 +75,9 @@ class DiaEngine:
         device: str | torch.device | None = None,
         dtype: str = "bfloat16",
         compile: bool = True,
+        compile_mode: str = DEFAULT_COMPILE_MODE,
         warmup_text: str = "Habari.",
+        warmup_options: Mapping[str, Any] | None = None,
         audio_context_tokens: int | None = DEFAULT_AUDIO_CONTEXT_TOKENS,
         reference_manifest: str | Path | None = DEFAULT_REFERENCE_MANIFEST,
     ) -> "DiaEngine":
@@ -133,17 +142,35 @@ class DiaEngine:
             reference=reference,
             reference_codes=reference_codes,
             compiled=False,
+            compile_mode=compile_mode,
         )
         if compile and device.type == "cuda":
-            # Warm compile so first real request is fast.
-            list(
-                wrapper.stream(
-                    warmup_text,
-                    use_torch_compile=True,
-                )
-            )
-            wrapper._compiled = True
+            wrapper._warm_compile(warmup_text, warmup_options)
         return wrapper
+
+    def _warm_compile(
+        self,
+        text: str,
+        options: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Compile production settings and stop after the first audio chunk."""
+        warmup_options = dict(options or {})
+        reserved = {"stats", "use_torch_compile"}.intersection(warmup_options)
+        if reserved:
+            names = ", ".join(sorted(reserved))
+            raise ValueError(f"warmup_options cannot override: {names}")
+        chunks = self.stream(
+            text,
+            use_torch_compile=True,
+            **warmup_options,
+        )
+        try:
+            next(chunks)
+        except StopIteration as exc:
+            raise RuntimeError("Dia warmup produced no audio") from exc
+        finally:
+            chunks.close()
+        self._compiled = True
 
     def stream(
         self,
@@ -209,6 +236,7 @@ class DiaEngine:
                     seed=seed,
                     audio_prompt=self._reference_codes,
                     use_torch_compile=use_compile,
+                    compile_mode=self._compile_mode,
                     stats=segment_stats,
                 ):
                     if overall.chunks_emitted == 0:
