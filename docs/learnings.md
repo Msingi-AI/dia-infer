@@ -80,9 +80,10 @@ The compiled decoder wrapper is retained on the model and reused by later
 streams. This avoids both unnecessary warmup audio and repeated wrapper setup;
 it does not change generated audio.
 
-The serving default is `reduce-overhead`, which avoids the lengthy kernel
-search performed by `max-autotune` while retaining CUDA-graph optimization.
-`DIA_COMPILE_MODE=max-autotune` remains available for throughput comparisons.
+The serving default remains `max-autotune`: conditioned streaming must produce
+audio faster than playback to avoid buffer underruns. `reduce-overhead` starts
+faster, but A10 testing produced audio at roughly 0.58x realtime. It remains
+available through `DIA_COMPILE_MODE` for non-realtime comparisons.
 
 ## Seeds and voice identity
 

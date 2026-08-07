@@ -130,7 +130,7 @@ download.
 | `DIA_REFERENCE_MANIFEST` | `references/default.json` | Voice-reference manifest |
 | `DIA_AUDIO_CONTEXT_TOKENS` | `3072` | Runtime decoder context |
 | `DIA_COMPILE` | `1` | Enable warmed `torch.compile` on CUDA |
-| `DIA_COMPILE_MODE` | `reduce-overhead` | TorchInductor compilation mode |
+| `DIA_COMPILE_MODE` | `max-autotune` | TorchInductor compilation mode |
 | `DIA_TEMPERATURE` | `1.3` | Default request and warmup temperature |
 | `DIA_CFG_SCALE` | `3.0` | Default request and warmup CFG scale |
 | `DIA_TOP_P` | `0.95` | Default request and warmup nucleus threshold |

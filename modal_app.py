@@ -37,7 +37,7 @@ image = (
         {
             "DIA_MODEL_DIR": "/root/dia-infer/models/dia",
             "DIA_COMPILE": "1",
-            "DIA_COMPILE_MODE": "reduce-overhead",
+            "DIA_COMPILE_MODE": "max-autotune",
             "DIA_AUDIO_CONTEXT_TOKENS": "3072",
             "DIA_REFERENCE_MANIFEST": "/root/dia-infer/references/default.json",
         }
