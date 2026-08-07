@@ -1,97 +1,140 @@
 # dia-infer
 
-Streaming TTS for our Swahili Dia checkpoint [`msingiai/dia`](https://huggingface.co/msingiai/dia).
+Streaming inference for the Swahili Dia checkpoint
+[`msingiai/dia`](https://huggingface.co/msingiai/dia).
 
-## Upstream
+The service uses a repository-managed voice reference by default and produces
+mono PCM/WAV audio at 44.1 kHz. Long input is segmented automatically while
+retaining the same reference voice.
 
-This is **not** shown as a GitHub fork. Inference is based on:
+## Repository layout
 
-- **Original project:** [Dia stlohrey fork](https://github.com/stlohrey/dia-finetuning)
-- **Vendored tree:** commit [`052a840`](https://github.com/nari-labs/dia/commit/052a840098351132d0cb533d9bd8094cbd2bf7e2) — includes [PR #163](https://github.com/nari-labs/dia/pull/163) (*Adjust KV Cache for torch.compile friendly*), which is what unlocked realtime-class speed vs the older stlohrey / pre-compile path we started from
-- **Our delta:** `LANG2BYTE` (`sw=8`) for Swahili SFT prompts (`[sw]…`, never `[S1]`/`[S2]`), plus a thin `DiaEngine` / WebSocket serve
+- `dia/` — vendored Dia inference code with Swahili `LANG2BYTE` support.
+- `dia_infer/` — model loading, text handling, reference loading, and streaming.
+- `references/` — voice-reference audio and manifest.
+- `infer.py` — local WAV generation.
+- `serve.py` — FastAPI HTTP and WebSocket service.
+- `modal_app.py` — Modal A10 deployment.
 
-`dia/` in this repo is that nari pin + LANG2BYTE. Runtime weights are **not** in git — download from Hugging Face (`config.json` + `model.pth`).
-
-## Reality check (serving)
-
-| GPU | Stream realtime? |
-|-----|------------------|
-| Laptop RTX 5060 8 GB | **No** (~29 toks/s) — smoke only |
-| Modal **A10** (warm compile) | **Yes** (~112 toks/s, TTFA ~0.46 s, wall/audio ~0.77) |
-
+The vendored code is based on Nari commit
+[`052a840`](https://github.com/nari-labs/dia/commit/052a840098351132d0cb533d9bd8094cbd2bf7e2)
+with the Swahili tag mapped to byte `8`.
 
 ## Install
 
-Needs **Python 3.11 or 3.12** (not 3.13 — `descript-audio-codec` / numba).
+Python 3.11 or 3.12 is required.
 
 ```bash
-cd dia-infer
 uv sync --python 3.11
-# host Modal CLI only (do not bake `modal` into a container image):
-uv sync --python 3.11 --extra modal
 ```
 
-- `dia/` — nari@052a840 + LANG2BYTE
-- `dia_infer/` — `DiaEngine`, streamer, text normalize, download
-- `serve.py` — FastAPI `/tts` WebSocket (PCM16 @ 44.1 kHz)
-- `modal_app.py` — Dia-only A10 WebSocket
-- `infer.py` — local wav smoke
+Download the model files (`config.json` and `model.pth`):
 
-## Engine API
+```bash
+uv run python -m dia_infer.download
+```
+
+## Voice reference
+
+The default voice is defined by [`references/default.json`](references/default.json).
+The audio path in a manifest is resolved relative to the manifest itself.
+
+```json
+{
+  "id": "default-sw-voice",
+  "language": "sw",
+  "audio": "default_voice.wav",
+  "transcript": "Exact transcript of the reference audio."
+}
+```
+
+The transcript must match the spoken audio exactly. To use another repository
+reference, add its WAV and manifest under `references/`, then pass the manifest
+path to the local CLI or set `DIA_REFERENCE_MANIFEST` for the service.
+
+## Local generation
+
+```bash
+uv run python infer.py \
+  "Kila asubuhi ninaamka mapema." \
+  --output out.wav \
+  --metrics \
+  --no-compile
+```
+
+The default reference is loaded automatically. An explicit manifest is only
+needed when selecting a different voice:
+
+```bash
+uv run python infer.py "Habari." \
+  --reference-manifest references/another_voice.json \
+  --output out.wav
+```
+
+## Python API
 
 ```python
 from dia_infer import DiaEngine
 
-engine = DiaEngine.load("models/dia", compile=True)  # warm compile
-for pcm in engine.stream_pcm16("Habari za asubuhi."):
-    ...  # little-endian int16 mono @ 44100
+engine = DiaEngine.load("models/dia", compile=True)
+
+for pcm16 in engine.stream_pcm16("Habari za asubuhi."):
+    send(pcm16)
 ```
 
-## Deploy (Modal A10)
+`stream_pcm16()` yields little-endian signed 16-bit chunks. `stream()` yields
+NumPy `float32` waveform chunks.
+
+## Service
+
+Run locally:
 
 ```bash
-cd dia-infer
-uv run modal serve modal_app.py   # ephemeral, or: modal deploy modal_app.py
-# HTTPS:  https://<app>--diaservice-fastapi-app.modal.run
-# WS:     wss://<app>--diaservice-fastapi-app.modal.run/tts
+DIA_COMPILE=0 uv run uvicorn serve:app --host 0.0.0.0 --port 8000
 ```
 
-Cold start includes `torch.compile` (~few minutes). `min_containers=1` keeps the GPU warm while you sample.
-
-### Listen / sample (POST → WAV)
+Generate a WAV:
 
 ```bash
-URL=https://<app>--diaservice-fastapi-app.modal.run
-
-# no clone (voice varies by text — expected)
-curl -sS -X POST "$URL/generate" \
+curl -sS http://localhost:8000/generate \
   -H 'Content-Type: application/json' \
-  -d '{"text":"Habari za asubuhi.","temperature":1.0,"seed":42}' \
+  -d '{"text":"Kila asubuhi ninaamka mapema."}' \
   -o out.wav
-
-# voice clone from a reference wav (e.g. your liked t6 male clip)
-# prompt_text MUST match the spoken words in audio_prompt exactly
-PROMPT='Ninafanya kazi katika kampuni ya msingi. Nimeweza kujifunza mengi. Mnakaribishwa muweze kujaribu modeli zetu za sauti, kwa sababu hakuna modeli zingine ambazo zinafikia zetu.'
-
-curl -sS -X POST "$URL/generate" \
-  -F "text=Kila asubuhi ninaamka mapema." \
-  -F "prompt_text=$PROMPT" \
-  -F "audio_prompt=@t6.0_seed42.wav" \
-  -F "temperature=1.0" \
-  -F "seed=42" \
-  -F "speed_factor=0.85" \
-  -o cloned.wav
 ```
 
-Clone often rushes (known Dia CFG quirk — see [nari#139](https://github.com/nari-labs/dia/issues/139)). `speed_factor<1` slows after generation (Gradio-style); try `0.8`–`0.9`. Simple stretch can shift pitch slightly.
+WebSocket clients connect to `/tts`, send one JSON message, then receive binary
+PCM16 chunks followed by an `end` JSON event:
 
-Seed alone does **not** keep the same speaker across different sentences. Clone with `audio_prompt` + matching `prompt_text` (nari: transcript of the prompt audio **before** the new text; for `msingiai/dia` that is `[sw]…` + `[sw]…`). Output is only the new `text`, not the prompt audio. Prefer ~5–10 s of clear reference audio.
+```json
+{"text": "Habari za asubuhi.", "seed": 42}
+```
 
-Streaming PCM remains at `wss://…/tts` (JSON `{"text":"…"}` then binary chunks).
+## Modal
 
-## Local smoke
+Install the host-side Modal CLI extra, then deploy:
 
 ```bash
-python -m dia_infer.download          # pulls msingiai/dia (public; HF_TOKEN optional)
-python infer.py "Habari." -o out.wav --metrics --no-compile
+uv sync --python 3.11 --extra modal
+uv run modal deploy modal_app.py
+```
+
+The image includes the `dia/`, `dia_infer/`, and `references/` directories.
+Model weights are downloaded when the container starts.
+
+## Configuration
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `DIA_MODEL_DIR` | `models/dia` | Model configuration and weights directory |
+| `DIA_REFERENCE_MANIFEST` | `references/default.json` | Voice-reference manifest |
+| `DIA_AUDIO_CONTEXT_TOKENS` | `3072` | Runtime decoder context |
+| `DIA_COMPILE` | `1` | Enable warmed `torch.compile` on CUDA |
+
+Generation requests also accept `temperature`, `cfg_scale`, `top_p`,
+`cfg_filter_top_k`, `seed`, `max_tokens`, and `segment_max_bytes`.
+
+## Tests
+
+```bash
+uv run python -m unittest discover -s tests -v
 ```

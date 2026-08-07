@@ -19,8 +19,12 @@ DEFAULT_HOP_LENGTH = 512
 @dataclass
 class StreamStats:
     frames_generated: int = 0
+    prompt_frames: int = 0
     samples_emitted: int = 0
     chunks_emitted: int = 0
+    segments_generated: int = 0
+    hit_token_limit: bool = False
+    stop_reason: str = ""
     time_to_first_chunk_s: float = 0.0
     total_s: float = 0.0
     sample_rate: int = DEFAULT_SAMPLE_RATE
@@ -35,18 +39,23 @@ class StreamStats:
 
     def reset(self, sample_rate: int) -> None:
         self.frames_generated = 0
+        self.prompt_frames = 0
         self.samples_emitted = 0
         self.chunks_emitted = 0
+        self.segments_generated = 0
+        self.hit_token_limit = False
+        self.stop_reason = ""
         self.time_to_first_chunk_s = 0.0
         self.total_s = 0.0
         self.sample_rate = sample_rate
 
     def summary(self) -> str:
         return (
-            f"steps={self.frames_generated} audio={self.audio_seconds:.2f}s "
+            f"steps={self.frames_generated} prompt={self.prompt_frames} "
+            f"segments={self.segments_generated} audio={self.audio_seconds:.2f}s "
             f"ttfa={self.time_to_first_chunk_s * 1000:.0f}ms "
             f"total={self.total_s:.2f}s wall/audio={self.wall_per_audio:.2f} "
-            f"chunks={self.chunks_emitted}"
+            f"chunks={self.chunks_emitted} stop={self.stop_reason or 'unknown'}"
         )
 
 
@@ -170,6 +179,12 @@ def _stream_stateful(
         dec_state, dec_output = engine._prepare_generation(text, audio_prompt)
 
     prefill_step = int(dec_output.prefill_step)
+    if prefill_step + max_delay >= max_tokens:
+        raise ValueError(
+            "audio prompt leaves no generation budget: "
+            f"prompt={prefill_step - 1} frames, context={max_tokens} frames"
+        )
+    stats.prompt_frames = max(0, prefill_step - 1)
     dec_step = prefill_step - 1
     bos_countdown = max_delay
     eos_detected = False
@@ -214,6 +229,11 @@ def _stream_stateful(
                 eos_detected = True
                 eos_countdown = max_delay
                 valid_frame_limit = max(0, current_step - prefill_step)
+                if reached_limit:
+                    stats.hit_token_limit = True
+                    stats.stop_reason = "token_limit"
+                else:
+                    stats.stop_reason = "eos"
 
         if eos_countdown > 0:
             pred_C = pred_C.clone()
@@ -239,6 +259,9 @@ def _stream_stateful(
     chunk = decoder.pull(raw, valid_frame_limit=valid_frame_limit, final=True)
     if chunk is not None:
         yield _record_chunk(stats, chunk, started_at)
+    if not stats.stop_reason:
+        stats.hit_token_limit = True
+        stats.stop_reason = "token_limit"
 
 
 @torch.inference_mode()
@@ -252,7 +275,7 @@ def stream_utterance(
     cfg_scale: float = 3.0,
     temperature: float = 1.3,
     top_p: float = 0.95,
-    cfg_filter_top_k: int = 35,
+    cfg_filter_top_k: int = 45,
     seed: int | None = None,
     audio_prompt: Any = None,
     use_torch_compile: bool = False,
@@ -262,6 +285,13 @@ def stream_utterance(
     if not text.strip():
         raise ValueError("text must be non-empty")
     max_tokens = int(engine.config.data.audio_length) if max_tokens is None else int(max_tokens)
+    if max_tokens > int(engine.config.data.audio_length):
+        raise ValueError(
+            f"max_tokens={max_tokens} exceeds the allocated audio context "
+            f"({engine.config.data.audio_length})"
+        )
+    if cfg_filter_top_k <= 0:
+        raise ValueError("cfg_filter_top_k must be > 0")
     sample_rate, hop_length = _sample_rate_and_hop(engine)
     chunk_frames = max(1, round((chunk_ms / 1000.0) * sample_rate / hop_length))
     stream_stats = stats if stats is not None else StreamStats()
@@ -290,9 +320,3 @@ def stream_utterance(
         )
     finally:
         stream_stats.total_s = time.perf_counter() - started_at
-
-
-def stream_pcm16(engine: Any, text: str, **kwargs: Any) -> Iterator[bytes]:
-    for chunk in stream_utterance(engine, text, **kwargs):
-        pcm = np.round(np.clip(chunk, -1.0, 1.0) * 32767.0).astype("<i2")
-        yield pcm.tobytes()

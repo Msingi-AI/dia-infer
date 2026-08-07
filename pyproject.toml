@@ -15,10 +15,8 @@ dependencies = [
   "numba>=0.60.0",
   "llvmlite>=0.43.0",
   "pydantic",
-  "python-dotenv>=1.0.0",
   "fastapi",
   "uvicorn",
-  "python-multipart",
   "websockets",
 ]
 
@@ -33,6 +31,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["dia_infer", "dia"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"references" = "references"
 
 [tool.uv]
 package = true

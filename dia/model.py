@@ -27,14 +27,30 @@ def _sample_next_token(
     logits_BCxV: torch.Tensor,
     temperature: float,
     top_p: float,
-    cfg_filter_top_k: int | None = None,
+    top_k: int | None = None,
+    audio_eos_value: int | None = None,
 ) -> torch.Tensor:
     if temperature == 0.0:
         return torch.argmax(logits_BCxV, dim=-1)
 
     logits_BCxV = logits_BCxV / temperature
-    if cfg_filter_top_k is not None:
-        _, top_k_indices_BCxV = torch.topk(logits_BCxV, k=cfg_filter_top_k, dim=-1)
+
+    # EOS is a structural decision, not an ordinary sampled codec token.  Older
+    # Dia inference could randomly sample EOS while it merely had non-zero
+    # probability, which made otherwise valid sentences stop part-way through.
+    # Follow current upstream Dia: EOS may be selected only when it is the most
+    # likely token, and must be selected when it is the most likely token.
+    if audio_eos_value is not None and audio_eos_value >= 0:
+        top_indices_BC = torch.argmax(logits_BCxV, dim=-1)
+        eos_is_top_BC = top_indices_BC == audio_eos_value
+        mask = torch.zeros_like(logits_BCxV, dtype=torch.bool)
+        mask[~eos_is_top_BC, audio_eos_value] = True
+        mask[eos_is_top_BC, :audio_eos_value] = True
+        logits_BCxV = logits_BCxV.masked_fill(mask, -torch.inf)
+
+    if top_k is not None:
+        top_k = min(int(top_k), int(logits_BCxV.shape[-1]))
+        _, top_k_indices_BCxV = torch.topk(logits_BCxV, k=top_k, dim=-1)
         mask = torch.ones_like(logits_BCxV, dtype=torch.bool)
         mask = mask.scatter(dim=-1, index=top_k_indices_BCxV, value=False)
         logits_BCxV = logits_BCxV.masked_fill(mask, -torch.inf)
@@ -323,7 +339,22 @@ class Dia:
         logits_last_BxCxV = logits_Bx1xCxV[:, -1]
         uncond_logits_CxV = logits_last_BxCxV[0]
         cond_logits_CxV = logits_last_BxCxV[1]
-        logits_CxV = cond_logits_CxV + cfg_scale * (cond_logits_CxV - uncond_logits_CxV)
+        guided_logits_CxV = cond_logits_CxV + cfg_scale * (
+            cond_logits_CxV - uncond_logits_CxV
+        )
+
+        # CFG should choose a plausible candidate set, not distort the sampling
+        # probabilities themselves.  Sampling the over-guided logits directly
+        # is the old Dia path associated with unstable/rushed conditioned audio.
+        # Current upstream filters by guided top-k, then samples the original
+        # conditional distribution inside that set.
+        filter_k = min(int(cfg_filter_top_k), int(guided_logits_CxV.shape[-1]))
+        _, top_indices_CxK = torch.topk(guided_logits_CxV, k=filter_k, dim=-1)
+        cfg_mask_CxV = torch.ones_like(guided_logits_CxV, dtype=torch.bool)
+        cfg_mask_CxV = cfg_mask_CxV.scatter(
+            dim=-1, index=top_indices_CxK, value=False
+        )
+        logits_CxV = cond_logits_CxV.masked_fill(cfg_mask_CxV, -torch.inf)
         logits_CxV[:, audio_eos_value + 1 :] = torch.full_like(
             logits_CxV[:, audio_eos_value + 1 :],
             fill_value=-torch.inf,
@@ -337,7 +368,8 @@ class Dia:
             logits_CxV.to(dtype=torch.float32),
             temperature=temperature,
             top_p=top_p,
-            cfg_filter_top_k=cfg_filter_top_k,
+            top_k=filter_k,
+            audio_eos_value=audio_eos_value,
         )
         return pred_C
 
@@ -400,7 +432,7 @@ class Dia:
         temperature: float = 1.3,
         top_p: float = 0.95,
         use_torch_compile: bool = False,
-        cfg_filter_top_k: int = 35,
+        cfg_filter_top_k: int = 45,
         audio_prompt: str | torch.Tensor | None = None,
         audio_prompt_path: str | None = None,
         use_cfg_filter: bool | None = None,

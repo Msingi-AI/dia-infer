@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-from dia_infer.engine import SAMPLE_RATE, DiaEngine
+from dia_infer.engine import DEFAULT_REFERENCE_MANIFEST, SAMPLE_RATE, DiaEngine
 from dia_infer.stream import StreamStats
 
 ROOT = Path(__file__).resolve().parent
@@ -25,10 +25,14 @@ def main() -> None:
     p.add_argument("--temperature", type=float, default=1.3)
     p.add_argument("--cfg-scale", type=float, default=3.0)
     p.add_argument("--top-p", type=float, default=0.95)
+    p.add_argument("--cfg-filter-top-k", type=int, default=45)
     p.add_argument("--seed", type=int, default=None)
-    p.add_argument("--speed-factor", type=float, default=1.0)
-    p.add_argument("--prompt-text", type=str, default=None)
-    p.add_argument("--audio-prompt", type=Path, default=None)
+    p.add_argument("--audio-context-tokens", type=int, default=3072)
+    p.add_argument("--max-tokens", type=int, default=None)
+    p.add_argument("--segment-max-bytes", type=int, default=220)
+    p.add_argument(
+        "--reference-manifest", type=Path, default=DEFAULT_REFERENCE_MANIFEST
+    )
     p.add_argument("--metrics", action="store_true")
     p.add_argument("--no-compile", action="store_true")
     args = p.parse_args()
@@ -36,6 +40,8 @@ def main() -> None:
     engine = DiaEngine.load(
         args.model_dir,
         compile=not args.no_compile,
+        audio_context_tokens=args.audio_context_tokens,
+        reference_manifest=args.reference_manifest,
     )
     stats = StreamStats()
     chunks = list(
@@ -44,16 +50,14 @@ def main() -> None:
             temperature=args.temperature,
             cfg_scale=args.cfg_scale,
             top_p=args.top_p,
+            cfg_filter_top_k=args.cfg_filter_top_k,
             seed=args.seed,
-            prompt_text=args.prompt_text,
-            audio_prompt=args.audio_prompt,
+            max_tokens=args.max_tokens,
+            segment_max_bytes=args.segment_max_bytes,
             stats=stats,
         )
     )
     audio = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
-    from dia_infer.audio_post import apply_speed_factor
-
-    audio = apply_speed_factor(audio, args.speed_factor)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     sf.write(str(args.output), audio, SAMPLE_RATE)
     print(f"[ok] {args.output} ({len(audio) / SAMPLE_RATE:.2f}s)")

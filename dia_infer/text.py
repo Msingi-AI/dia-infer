@@ -102,3 +102,61 @@ def format_sw_prompt(text: str) -> str:
 def format_clone_prompt(prompt_text: str, generate_text: str) -> str:
     """Voice-clone text: transcript of the reference audio + new text (nari-style concat)."""
     return format_sw_prompt(prompt_text) + format_sw_prompt(generate_text)
+
+
+def split_for_tts(text: str, max_bytes: int) -> list[str]:
+    """Split normalized text into bounded UTF-8 chunks at natural boundaries.
+
+    Dia has fixed text/audio contexts and becomes unstable on long-form input.
+    This keeps punctuation when possible and falls back to word boundaries for
+    a single long sentence.  It intentionally does not add or rewrite words.
+    """
+    if max_bytes < 16:
+        raise ValueError("max_bytes must be at least 16")
+    body = normalize_for_tts(text)
+    if not body:
+        return []
+    if len(body.encode("utf-8")) <= max_bytes:
+        return [body]
+
+    clauses = re.split(r"(?<=[.!?;:,])\s+", body)
+    pieces: list[str] = []
+    for clause in clauses:
+        clause = clause.strip()
+        if not clause:
+            continue
+        if len(clause.encode("utf-8")) <= max_bytes:
+            pieces.append(clause)
+            continue
+
+        current: list[str] = []
+        current_bytes = 0
+        for word in clause.split():
+            word_bytes = len(word.encode("utf-8"))
+            extra = word_bytes + (1 if current else 0)
+            if current and current_bytes + extra > max_bytes:
+                pieces.append(" ".join(current))
+                current = [word]
+                current_bytes = word_bytes
+            else:
+                current.append(word)
+                current_bytes += extra
+        if current:
+            pieces.append(" ".join(current))
+
+    chunks: list[str] = []
+    current = ""
+    for piece in pieces:
+        candidate = piece if not current else f"{current} {piece}"
+        if current and len(candidate.encode("utf-8")) > max_bytes:
+            chunks.append(current)
+            current = piece
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+
+    too_long = [chunk for chunk in chunks if len(chunk.encode("utf-8")) > max_bytes]
+    if too_long:
+        raise ValueError("text contains a word longer than the segment byte budget")
+    return chunks

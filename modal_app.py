@@ -30,12 +30,18 @@ image = (
         "pydantic",
         "fastapi",
         "uvicorn",
-        "python-multipart",
-        "python-dotenv",
     )
-    .env({"DIA_MODEL_DIR": "/root/dia-infer/models/dia", "DIA_COMPILE": "1"})
+    .env(
+        {
+            "DIA_MODEL_DIR": "/root/dia-infer/models/dia",
+            "DIA_COMPILE": "1",
+            "DIA_AUDIO_CONTEXT_TOKENS": "3072",
+            "DIA_REFERENCE_MANIFEST": "/root/dia-infer/references/default.json",
+        }
+    )
     .add_local_dir(str(ROOT / "dia"), remote_path="/root/dia-infer/dia")
     .add_local_dir(str(ROOT / "dia_infer"), remote_path="/root/dia-infer/dia_infer")
+    .add_local_dir(str(ROOT / "references"), remote_path="/root/dia-infer/references")
     .add_local_file(str(ROOT / "serve.py"), remote_path="/root/dia-infer/serve.py")
     .add_local_file(str(ROOT / "infer.py"), remote_path="/root/dia-infer/infer.py")
 )
