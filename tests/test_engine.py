@@ -8,6 +8,7 @@ from unittest.mock import patch
 import numpy as np
 import torch
 
+from dia.generation import GenerationConfig
 from dia_infer.engine import DiaEngine
 from dia_infer.reference import VoiceReference
 from dia_infer.stream import StreamStats
@@ -28,6 +29,49 @@ class _FakeDia:
 
 
 class EngineSegmentationTests(unittest.TestCase):
+    def test_generation_config_reaches_streamer(self) -> None:
+        engine = DiaEngine(_FakeDia())
+        generation = GenerationConfig(
+            temperature=0.8,
+            cfg_scale=2.5,
+            top_p=0.9,
+            cfg_filter_top_k=30,
+            seed=37,
+            max_tokens=400,
+            segment_max_bytes=180,
+            chunk_ms=500,
+        )
+
+        def fake_stream(_dia, _prompt: str, **kwargs):
+            stats: StreamStats = kwargs["stats"]
+            stats.stop_reason = "eos"
+            yield np.ones(32, dtype=np.float32)
+
+        with patch(
+            "dia_infer.engine.stream_utterance", side_effect=fake_stream
+        ) as stream:
+            list(engine.stream("Habari.", generation_config=generation))
+
+        kwargs = stream.call_args.kwargs
+        self.assertEqual(kwargs["temperature"], generation.temperature)
+        self.assertEqual(kwargs["cfg_scale"], generation.cfg_scale)
+        self.assertEqual(kwargs["top_p"], generation.top_p)
+        self.assertEqual(kwargs["cfg_filter_top_k"], generation.cfg_filter_top_k)
+        self.assertEqual(kwargs["seed"], generation.seed)
+        self.assertEqual(kwargs["max_tokens"], generation.max_tokens)
+        self.assertEqual(kwargs["chunk_ms"], generation.chunk_ms)
+
+    def test_generation_config_cannot_mix_with_legacy_overrides(self) -> None:
+        engine = DiaEngine(_FakeDia())
+        with self.assertRaisesRegex(ValueError, "cannot be combined"):
+            list(
+                engine.stream(
+                    "Habari.",
+                    generation_config=GenerationConfig(),
+                    temperature=0.8,
+                )
+            )
+
     def test_long_input_reuses_one_encoded_reference(self) -> None:
         dia = _FakeDia()
         reference_codes = torch.zeros((10, 9), dtype=torch.int32)

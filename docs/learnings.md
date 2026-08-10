@@ -91,3 +91,22 @@ A fixed seed makes sampling reproducible for the same input. It is not a
 speaker embedding, so changing the text changes the logits and sampling path.
 The managed audio reference is what carries voice identity across different
 sentences.
+
+## Testing WSS streaming from a terminal
+
+The `/tts` endpoint uses secure WebSockets (`wss://`) and returns raw signed
+16-bit, little-endian, mono PCM at 44.1 kHz. The project already depends on the
+Python `websockets` package, so this test does not require `websocat`:
+
+```bash
+export DIA_WSS='wss://your-modal-endpoint.modal.run/tts'
+export DIA_TEXT='Habari yako leo?'
+
+uv run python -c 'import json,os,sys; from collections import deque; from websockets.sync.client import connect; ws=connect(os.environ["DIA_WSS"]); ws.send(json.dumps({"text":os.environ["DIA_TEXT"],"temperature":1.3,"seed":37})); deque(((sys.stdout.buffer.write(message),sys.stdout.buffer.flush()) for message in ws if isinstance(message,bytes)),maxlen=0)' \
+  | ffplay -nodisp -autoexit -loglevel warning \
+      -f s16le -ar 44100 -ch_layout mono -i pipe:0
+```
+
+`ffplay` is installed with FFmpeg. On current FFmpeg releases, use
+`-ch_layout mono`; the older `-ac 1` input option may be rejected. Do not copy
+the shell prompt or a label such as `ffplay:` as part of the command.

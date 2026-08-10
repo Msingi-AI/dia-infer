@@ -10,7 +10,9 @@ from typing import Any, Iterator
 import numpy as np
 import torch
 
-DEFAULT_CHUNK_MS = 250
+from dia.generation import DEFAULT_GENERATION_CONFIG
+
+DEFAULT_CHUNK_MS = DEFAULT_GENERATION_CONFIG.chunk_ms
 DEFAULT_CONTEXT_FRAMES = 16
 DEFAULT_SAMPLE_RATE = 44_100
 DEFAULT_HOP_LENGTH = 512
@@ -286,14 +288,14 @@ def stream_utterance(
     engine: Any,
     text: str,
     *,
-    chunk_ms: int = DEFAULT_CHUNK_MS,
+    chunk_ms: int = DEFAULT_GENERATION_CONFIG.chunk_ms,
     context_frames: int = DEFAULT_CONTEXT_FRAMES,
-    max_tokens: int | None = None,
-    cfg_scale: float = 3.0,
-    temperature: float = 1.3,
-    top_p: float = 0.95,
-    cfg_filter_top_k: int = 45,
-    seed: int | None = None,
+    max_tokens: int | None = DEFAULT_GENERATION_CONFIG.max_tokens,
+    cfg_scale: float = DEFAULT_GENERATION_CONFIG.cfg_scale,
+    temperature: float = DEFAULT_GENERATION_CONFIG.temperature,
+    top_p: float = DEFAULT_GENERATION_CONFIG.top_p,
+    cfg_filter_top_k: int = DEFAULT_GENERATION_CONFIG.cfg_filter_top_k,
+    seed: int | None = DEFAULT_GENERATION_CONFIG.seed,
     audio_prompt: Any = None,
     use_torch_compile: bool = False,
     compile_mode: str = DEFAULT_COMPILE_MODE,

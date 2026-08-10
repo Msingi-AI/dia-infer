@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from dia.generation import DEFAULT_GENERATION_CONFIG, GenerationConfig
 from dia_infer.reference import VoiceReference
 from dia_infer.text import format_sw_prompt, normalize_for_tts
 
@@ -14,6 +15,8 @@ SAMPLE_RATE = 44_100
 
 __all__ = [
     "DiaEngine",
+    "DEFAULT_GENERATION_CONFIG",
+    "GenerationConfig",
     "SAMPLE_RATE",
     "VoiceReference",
     "format_sw_prompt",

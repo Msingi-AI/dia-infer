@@ -8,6 +8,7 @@ import torchaudio
 
 from .audio import apply_audio_delay, build_delay_indices, build_revert_indices, decode, revert_audio_delay
 from .config import DiaConfig
+from .generation import DEFAULT_GENERATION_CONFIG
 from .layers import DiaModel
 from .state import DecoderInferenceState, DecoderOutput, EncoderInferenceState
 
@@ -427,12 +428,12 @@ class Dia:
     def generate(
         self,
         text: str,
-        max_tokens: int | None = None,
-        cfg_scale: float = 3.0,
-        temperature: float = 1.3,
-        top_p: float = 0.95,
+        max_tokens: int | None = DEFAULT_GENERATION_CONFIG.max_tokens,
+        cfg_scale: float = DEFAULT_GENERATION_CONFIG.cfg_scale,
+        temperature: float = DEFAULT_GENERATION_CONFIG.temperature,
+        top_p: float = DEFAULT_GENERATION_CONFIG.top_p,
         use_torch_compile: bool = False,
-        cfg_filter_top_k: int = 45,
+        cfg_filter_top_k: int = DEFAULT_GENERATION_CONFIG.cfg_filter_top_k,
         audio_prompt: str | torch.Tensor | None = None,
         audio_prompt_path: str | None = None,
         use_cfg_filter: bool | None = None,

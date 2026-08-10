@@ -11,13 +11,14 @@ from typing import Any
 import numpy as np
 import torch
 
+from dia.generation import DEFAULT_GENERATION_CONFIG, GenerationConfig
 from dia_infer.reference import VoiceReference
 from dia_infer.stream import DEFAULT_COMPILE_MODE, StreamStats, stream_utterance
 from dia_infer.text import format_clone_prompt, format_sw_prompt, split_for_tts
 
 SAMPLE_RATE = 44_100
 DEFAULT_AUDIO_CONTEXT_TOKENS = 3_072
-DEFAULT_SEGMENT_MAX_BYTES = 220
+DEFAULT_SEGMENT_MAX_BYTES = DEFAULT_GENERATION_CONFIG.segment_max_bytes
 _ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_REFERENCE_MANIFEST = _ROOT / "references" / "default.json"
 
@@ -176,18 +177,34 @@ class DiaEngine:
         self,
         text: str,
         *,
-        chunk_ms: int = 250,
-        cfg_scale: float = 3.0,
-        temperature: float = 1.3,
-        top_p: float = 0.95,
-        cfg_filter_top_k: int = 45,
-        seed: int | None = None,
-        max_tokens: int | None = None,
+        generation_config: GenerationConfig | None = None,
+        chunk_ms: int = DEFAULT_GENERATION_CONFIG.chunk_ms,
+        cfg_scale: float = DEFAULT_GENERATION_CONFIG.cfg_scale,
+        temperature: float = DEFAULT_GENERATION_CONFIG.temperature,
+        top_p: float = DEFAULT_GENERATION_CONFIG.top_p,
+        cfg_filter_top_k: int = DEFAULT_GENERATION_CONFIG.cfg_filter_top_k,
+        seed: int | None = DEFAULT_GENERATION_CONFIG.seed,
+        max_tokens: int | None = DEFAULT_GENERATION_CONFIG.max_tokens,
         segment_max_bytes: int | None = DEFAULT_SEGMENT_MAX_BYTES,
         use_torch_compile: bool | None = None,
         stats: StreamStats | None = None,
     ) -> Iterator[np.ndarray]:
         overall_started = time.perf_counter()
+        legacy_config = GenerationConfig(
+            temperature=temperature,
+            cfg_scale=cfg_scale,
+            top_p=top_p,
+            cfg_filter_top_k=cfg_filter_top_k,
+            seed=seed,
+            max_tokens=max_tokens,
+            segment_max_bytes=segment_max_bytes,
+            chunk_ms=chunk_ms,
+        )
+        if generation_config is not None and legacy_config != DEFAULT_GENERATION_CONFIG:
+            raise ValueError(
+                "generation_config cannot be combined with generation keyword overrides"
+            )
+        generation = generation_config or legacy_config
         text_limit = int(self._dia.config.data.text_length)
         clone_prefix = (
             format_sw_prompt(self._reference.transcript)
@@ -202,10 +219,8 @@ class DiaEngine:
                 "reference transcript is too long for Dia's text context"
             )
         split_budget = available_text_bytes
-        if segment_max_bytes is not None:
-            if int(segment_max_bytes) < 16:
-                raise ValueError("segment_max_bytes must be at least 16 or None")
-            split_budget = min(split_budget, int(segment_max_bytes))
+        if generation.segment_max_bytes is not None:
+            split_budget = min(split_budget, generation.segment_max_bytes)
         segments = split_for_tts(text, split_budget)
         if not segments:
             raise ValueError("text must be non-empty")
@@ -227,13 +242,13 @@ class DiaEngine:
                 for chunk in stream_utterance(
                     self._dia,
                     prompt,
-                    chunk_ms=chunk_ms,
-                    max_tokens=max_tokens,
-                    cfg_scale=cfg_scale,
-                    temperature=temperature,
-                    top_p=top_p,
-                    cfg_filter_top_k=cfg_filter_top_k,
-                    seed=seed,
+                    chunk_ms=generation.chunk_ms,
+                    max_tokens=generation.max_tokens,
+                    cfg_scale=generation.cfg_scale,
+                    temperature=generation.temperature,
+                    top_p=generation.top_p,
+                    cfg_filter_top_k=generation.cfg_filter_top_k,
+                    seed=generation.seed,
                     audio_prompt=self._reference_codes,
                     use_torch_compile=use_compile,
                     compile_mode=self._compile_mode,
