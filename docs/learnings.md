@@ -53,9 +53,10 @@ reference transcript to every generation request, reducing the space available
 for new text. Previously, excess text was silently truncated by the tokenizer.
 
 New input is now normalized and split at punctuation or word boundaries. The
-default segment budget is 220 UTF-8 bytes. Every segment uses the same cached
-reference codes, keeping the voice stable while remaining within the model's
-more reliable short-form range.
+splitter targets roughly 10 seconds of speech, allows up to an estimated 15
+seconds, and retains the 220-byte context safeguard. Short conversational
+responses pass through unchanged. Every segment uses the same cached reference
+codes, keeping the voice stable within the model's more reliable range.
 
 ## Reference lifecycle
 

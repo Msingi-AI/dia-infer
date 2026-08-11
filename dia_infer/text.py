@@ -37,6 +37,12 @@ ABBREVIATIONS = {
     "k.v.": "kama vile",
 }
 
+DEFAULT_SEGMENT_TARGET_SECONDS = 10.0
+DEFAULT_SEGMENT_MAX_SECONDS = 15.0
+_MIN_NATURAL_SEGMENT_SECONDS = 5.0
+_ESTIMATED_CHARACTERS_PER_SECOND = 14.0
+_ESTIMATED_WORDS_PER_SECOND = 2.7
+
 
 def cardinal(n: int) -> str:
     if n < 0:
@@ -104,19 +110,44 @@ def format_clone_prompt(prompt_text: str, generate_text: str) -> str:
     return format_sw_prompt(prompt_text) + format_sw_prompt(generate_text)
 
 
-def split_for_tts(text: str, max_bytes: int) -> list[str]:
+def estimate_spoken_seconds(text: str) -> float:
+    """Estimate Swahili speech duration without another model or dependency."""
+    words = re.findall(r"\S+", text)
+    spoken_characters = sum(character.isalpha() for character in text)
+    speech_seconds = max(
+        spoken_characters / _ESTIMATED_CHARACTERS_PER_SECOND,
+        len(words) / _ESTIMATED_WORDS_PER_SECOND,
+    )
+    sentence_pauses = len(re.findall(r"[.!?]", text)) * 0.35
+    clause_pauses = len(re.findall(r"[;:,]", text)) * 0.15
+    return speech_seconds + sentence_pauses + clause_pauses
+
+
+def split_for_tts(
+    text: str,
+    max_bytes: int,
+    *,
+    target_seconds: float = DEFAULT_SEGMENT_TARGET_SECONDS,
+    max_seconds: float = DEFAULT_SEGMENT_MAX_SECONDS,
+) -> list[str]:
     """Split normalized text into bounded UTF-8 chunks at natural boundaries.
 
     Dia has fixed text/audio contexts and becomes unstable on long-form input.
-    This keeps punctuation when possible and falls back to word boundaries for
-    a single long sentence.  It intentionally does not add or rewrite words.
+    This targets moderate-duration utterances, keeps punctuation when possible,
+    and falls back to word boundaries for a long sentence. It intentionally
+    does not add or rewrite words.
     """
     if max_bytes < 16:
         raise ValueError("max_bytes must be at least 16")
+    if target_seconds <= 0 or max_seconds < target_seconds:
+        raise ValueError("duration limits must satisfy 0 < target <= max")
     body = normalize_for_tts(text)
     if not body:
         return []
-    if len(body.encode("utf-8")) <= max_bytes:
+    if (
+        len(body.encode("utf-8")) <= max_bytes
+        and estimate_spoken_seconds(body) <= max_seconds
+    ):
         return [body]
 
     clauses = re.split(r"(?<=[.!?;:,])\s+", body)
@@ -125,22 +156,25 @@ def split_for_tts(text: str, max_bytes: int) -> list[str]:
         clause = clause.strip()
         if not clause:
             continue
-        if len(clause.encode("utf-8")) <= max_bytes:
+        if (
+            len(clause.encode("utf-8")) <= max_bytes
+            and estimate_spoken_seconds(clause) <= max_seconds
+        ):
             pieces.append(clause)
             continue
 
         current: list[str] = []
-        current_bytes = 0
         for word in clause.split():
-            word_bytes = len(word.encode("utf-8"))
-            extra = word_bytes + (1 if current else 0)
-            if current and current_bytes + extra > max_bytes:
+            candidate = " ".join([*current, word])
+            if current and (
+                len(candidate.encode("utf-8")) > max_bytes
+                or estimate_spoken_seconds(candidate) > max_seconds
+                or estimate_spoken_seconds(" ".join(current)) >= target_seconds
+            ):
                 pieces.append(" ".join(current))
                 current = [word]
-                current_bytes = word_bytes
             else:
                 current.append(word)
-                current_bytes += extra
         if current:
             pieces.append(" ".join(current))
 
@@ -148,13 +182,25 @@ def split_for_tts(text: str, max_bytes: int) -> list[str]:
     current = ""
     for piece in pieces:
         candidate = piece if not current else f"{current} {piece}"
-        if current and len(candidate.encode("utf-8")) > max_bytes:
+        if current and (
+            len(candidate.encode("utf-8")) > max_bytes
+            or estimate_spoken_seconds(candidate) > max_seconds
+            or estimate_spoken_seconds(current) >= target_seconds
+        ):
             chunks.append(current)
             current = piece
         else:
             current = candidate
     if current:
         chunks.append(current)
+
+    if len(chunks) > 1 and estimate_spoken_seconds(chunks[-1]) < _MIN_NATURAL_SEGMENT_SECONDS:
+        combined = f"{chunks[-2]} {chunks[-1]}"
+        if (
+            len(combined.encode("utf-8")) <= max_bytes
+            and estimate_spoken_seconds(combined) <= max_seconds
+        ):
+            chunks[-2:] = [combined]
 
     too_long = [chunk for chunk in chunks if len(chunk.encode("utf-8")) > max_bytes]
     if too_long:
