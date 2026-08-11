@@ -7,3 +7,4 @@ out.wav
 .env
 .modal/
 !references/default_voice.wav
+!references/t4_voice.wav
