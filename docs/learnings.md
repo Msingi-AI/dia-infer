@@ -9,14 +9,14 @@ The checkpoint configuration has an audio length of 1,536 DAC frames. At a
 44.1 kHz sample rate and a 512-sample codec hop, that represents about 17.8
 seconds of total decoder context.
 
-The selected reference is 8.38 seconds, or approximately 722 DAC frames.
-Including BOS and delay-pattern overhead left only about 798 frames—roughly
-9.3 seconds—for newly generated audio. This was enough for short tests, but
+The selected reference is 10.59 seconds, or approximately 912 DAC frames.
+Including BOS and delay-pattern overhead left only about 608 frames—roughly
+7.1 seconds—for newly generated audio. This was enough for short tests, but
 longer text either truncated or was spoken unnaturally quickly.
 
 Inference now allocates 3,072 frames. This changes runtime cache capacity only;
 it does not modify checkpoint weights. With the current reference, it leaves
-about 27.1 seconds for generated audio after delay overhead.
+about 24.9 seconds for generated audio after delay overhead.
 
 ## CFG filtering
 

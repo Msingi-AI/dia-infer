@@ -84,16 +84,23 @@ The audio path in a manifest is resolved relative to the manifest itself.
 
 ```json
 {
-  "id": "default-sw-voice",
+  "id": "t6",
   "language": "sw",
-  "audio": "default_voice.wav",
-  "transcript": "Exact transcript of the reference audio."
+  "voices": {
+    "t6": {
+      "audio": "default_voice.wav",
+      "transcript": "Exact transcript of the t6 audio."
+    },
+    "t4": {
+      "audio": "t4_voice.wav",
+      "transcript": "Exact transcript of the t4 audio."
+    }
+  }
 }
 ```
 
-The transcript must match the spoken audio exactly. To use another repository
-reference, add its WAV and manifest under `references/`, then pass the manifest
-path to the local CLI or set `DIA_REFERENCE_MANIFEST` for the service.
+The transcript must match its audio exactly. Select a repository voice by
+changing only the top-level `id`.
 
 ## Optional local generation
 

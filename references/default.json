@@ -1,6 +1,14 @@
 {
-  "id": "t4-sw-voice",
+  "id": "t6",
   "language": "sw",
-  "audio": "t4_voice.wav",
-  "transcript": "kila asubuhi ninaamka mapema, nafanya mazoezi kwa dakika thelatini, kisha ninajiandaa kuenda kazini huku nikisikiliza muziki ninaoupenda."
+  "voices": {
+    "t6": {
+      "audio": "default_voice.wav",
+      "transcript": "Ninafanya kazi katika kampuni ya msingi. Nimeweza kujifunza mengi. Mnakaribishwa muweze kujaribu modeli zetu za sauti, kwa sababu hakuna modeli zingine ambazo zinafikia zetu."
+    },
+    "t4": {
+      "audio": "t4_voice.wav",
+      "transcript": "kila asubuhi ninaamka mapema, nafanya mazoezi kwa dakika thelatini, kisha ninajiandaa kuenda kazini huku nikisikiliza muziki ninaoupenda."
+    }
+  }
 }

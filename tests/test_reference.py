@@ -38,6 +38,32 @@ class ReferenceManifestTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "missing"):
                 VoiceReference.load(manifest)
 
+    def test_catalog_selects_voice_by_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "t6.wav").write_bytes(b"RIFF")
+            manifest = root / "voices.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "id": "t6",
+                        "language": "sw",
+                        "voices": {
+                            "t6": {
+                                "audio": "t6.wav",
+                                "transcript": "Habari.",
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            reference = VoiceReference.load(manifest)
+
+        self.assertEqual(reference.id, "t6")
+        self.assertEqual(reference.audio_path, (root / "t6.wav").resolve())
+
 
 if __name__ == "__main__":
     unittest.main()

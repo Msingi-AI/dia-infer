@@ -28,6 +28,14 @@ class VoiceReference:
         if not isinstance(data, dict):
             raise ValueError(f"Reference manifest must contain a JSON object: {manifest}")
 
+        voice_id = str(data.get("id", "")).strip()
+        if "voices" in data:
+            voices = data["voices"]
+            voice = voices.get(voice_id) if isinstance(voices, dict) else None
+            if not isinstance(voice, dict):
+                raise ValueError(f"Unknown reference id {voice_id!r}: {manifest}")
+            data = {**voice, "id": voice_id, "language": data.get("language")}
+
         required = ("id", "language", "audio", "transcript")
         missing = [key for key in required if not str(data.get(key, "")).strip()]
         if missing:
